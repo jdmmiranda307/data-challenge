@@ -1,0 +1,11 @@
+A organização da arquitetura será dividida em 4 subnets, todas contidas na VPC principal do projeto.
+Dentro da subnet de Ingest temos um Route53 que é responsavel por guardar o DNS que é exposto para a internet, que será de onde receberemos os eventos. A ideia de usar o Route53 é exatamente termos um DNS publico provido pela AWS, que é diferente do DNS interno usado pelas maquinas da nossa infraestrutura. Com isso, temos uma camada de segurança a mais pra nossa camada exposta à internet.
+O trafego recebido pelo Route53 é enviado para o Load Balancer, que distribui os eventos pelo Auto Scaling de pré processamento e validação dos eventos. Nessa parte, temos um auto scale de EC2s, onde ficam os códigos que vão validar os dados com o schema, e fazer qualquer outro tipo de preprocessamento necessário (mas que sejam coisas simples e rápidas, já que esse código precisa ser rápido).
+Em seguida, os eventos validados e préprocessados vão pra camada de transporte, onde temos um Kafka, que será responsavel por represar as mensagens que chegam como JSON e são transformadas para parquet, e em seguida, ele as escreve em um bucket de dados Raw.
+A camada Batch é acionada periodicamente, quando os jobs de processamento são chamados pela instancia com um Airflow, responsavel por orquestrar essa fase de processamento.
+O Airflow instancia clusters Spark, que vão: 
+	- Normalizar os dados raw para poder gerar os catalogos deles (Glue crawler/catalog tem dificuldades para lidar com nested jsons, então é necessário deixar esses dados "flat" para catalogalos)
+	- Realizar qualquer processamento além nos dados, como agregações, enriquecimentos, filtros e afins.
+Os dados após o processamento batch é saçvo tanto no S3 Raw (dados preparados para ir para o glue) como no S3 para dados quentes e mornos.
+Existem 2 crawlers do glue que funcionarão sobre esses buckets para catalogar os dados, e então salva-los em um bucket com os dados catalogados tanto do raw quanto do processado.
+Por fim, temos a subnet de Visualização/Gestão, onde tem uma EC2 com Dremio, que é a interface que será utilizada para consultas dos dados por todo o time de dados.
